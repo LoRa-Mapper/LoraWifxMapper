@@ -1,1 +1,1 @@
-# LoraWifxMapper
+# LoRaMapper

@@ -1,0 +1,5 @@
+com\app\spark\module\SignalPoint.class
+com\app\spark\utils\LoadConfig.class
+com\app\spark\core\DataProcessor.class
+com\app\spark\utils\Deserializer.class
+com\app\spark\core\KafkaCSVProducer.class
