@@ -5,6 +5,7 @@ import com.influxdb.client.InfluxDBClient;
 import com.influxdb.client.InfluxDBClientFactory;
 import com.influxdb.client.WriteApi;
 import com.influxdb.client.domain.WritePrecision;
+import com.influxdb.client.write.Point;
 import kafka.serializer.StringDecoder;
 import org.apache.log4j.Logger;
 import org.apache.spark.SparkConf;
@@ -12,14 +13,18 @@ import org.apache.spark.streaming.Durations;
 import org.apache.spark.streaming.api.java.JavaPairInputDStream;
 import org.apache.spark.streaming.api.java.JavaStreamingContext;
 import org.apache.spark.streaming.kafka.KafkaUtils;
+import org.json.JSONArray;
+import org.json.JSONException;
+import org.json.JSONObject;
 
+import java.time.Instant;
 import java.util.*;
 public class DataProcessor {
     private static final Logger logger = Logger.getLogger(DataProcessor.class);
 
     public static void main(String[] args) throws Exception {
+
         //read Spark and Cassandra properties and create SparkConf
-        System.out.println("here iam ");
         Properties prop = LoadConfig.readPropertyFile();
         SparkConf conf = new SparkConf()
                 .setAppName(prop.getProperty("com.app.spark.app.name"))
@@ -27,7 +32,7 @@ public class DataProcessor {
         //batch interval of 5 seconds for incoming stream
         JavaStreamingContext jssc = new JavaStreamingContext(conf, Durations.seconds(5));
         //add check point directory
-        //jssc.checkpoint(prop.getProperty("com.app.spark.checkpoint.dir"));
+       // jssc.checkpoint(prop.getProperty("com.app.spark.checkpoint.dir"));
 
         //read and set Kafka properties
         Map<String, String> kafkaParams = new HashMap<String, String>();
@@ -54,53 +59,86 @@ public class DataProcessor {
         String bucket = "Wifx";
         String org = "Wifx";
 
-        InfluxDBClient client = InfluxDBClientFactory.create("http://localhost:8086", token.toCharArray());
+       InfluxDBClient client = InfluxDBClientFactory.create("http://localhost:8086", token.toCharArray());
 
 
         List<String> allRecord = new ArrayList<String>();
         final String COMMA = ",";
+
         logger.info("Starting Stream Processing");
         directKafkaStream.foreachRDD(rdd -> {
             System.out.println("--- Received new data RDD  " + rdd.partitions().size() + " partitions and " + rdd.count() + " records");
             //rdd
             if (rdd.count() > 0) {
                 rdd.collect().forEach(rawRecord -> {
-                    System.out.println(rawRecord);
                     System.out.println("***************************************");
-                    System.out.println(rawRecord._2);
+                   // System.out.println(rawRecord._2);
                     String record = rawRecord._2();
-                    StringTokenizer st = new StringTokenizer(record, ",");
-                    StringBuilder sb = new StringBuilder();
+                    /* * *rxInfo***/
+                    JSONObject json = new JSONObject(record);
+                    JSONArray rxInfo = json.getJSONArray("rxInfo");
 
-                    while (st.hasMoreTokens()) {
-                        String id = st.nextToken(); // Maps a unit of time in the real world. In this case 1 step is 1 hour of time.
-                        String time = st.nextToken(); // CASH-IN,CASH-OUT, DEBIT, PAYMENT and TRANSFER
-                        String device_id = st.nextToken(); //amount of the transaction in local currency
-                        String application_id = st.nextToken(); //  customerID who started the transaction
-                        String gateway_id = st.nextToken(); // initial balance before the transaction
-                        String modulation = st.nextToken(); // customer's balance after the transaction.
-                        String datarate = st.nextToken(); // recipient ID of the transaction.
-                        String snr = st.nextToken(); // initial recipient balance before the transaction.
-                        String rssi = st.nextToken(); // recipient's balance after the transaction.
-                        String freq = st.nextToken(); // dentifies a fraudulent transaction (1) and non fraudulent (0)
-                        String f_cnt = st.nextToken(); // flags illegal attempts to transfer more than 200.000 in a single transaction.
-                        String latitude = st.nextToken();
-                        String longitude = st.nextToken();
-                        String altitude = st.nextToken();
-                        // Keep only interested columnn in Master Data set.
-                        sb.append(gateway_id).append(COMMA).append(datarate).append(COMMA).append(snr).append(COMMA).append(rssi).append(COMMA).append(freq).append(COMMA).append(latitude).append(COMMA).append(longitude);
-                        allRecord.add(sb.toString());
+                    /* ***GatewayID*** */
+                    String gateway_id="";
+                    gateway_id = rxInfo.getJSONObject(0).getString("gatewayID");
+                    System.out.println("gatewayid:"+gateway_id);
 
-                        String data = "mem,host=host1 used_percent=23.43234543";
-                        try (WriteApi writeApi = client.getWriteApi()) {
-                            writeApi.writeRecord(bucket, org, WritePrecision.NS, sb.toString());
-                        }
+                    /* ***txInfo*** */
+                    JSONObject txInfo = json.getJSONObject("txInfo");
 
+                    /* ***SpreadingFactor*** */
+                    JSONObject loRaModulationInfo =  txInfo.getJSONObject("loRaModulationInfo");
+                    int spreading_factor=loRaModulationInfo.getInt("spreadingFactor");
+                    System.out.println("spreadingFactor:"+spreading_factor);
 
+                    /* ***Frequency*** */
+                    double frequency =  (txInfo.getDouble("frequency"))/1000000;
+                    System.out.println("Frequency :"+frequency);
+
+                    String obj = json.getString("objectJSON");
+                    JSONObject data=new JSONObject();
+                    try {
+                         data = new JSONObject(obj);
+                    }catch (JSONException err){
+                        err.printStackTrace();
                     }
+                    /* ***RSSI*** */
+                    int rssi= data.getInt("_rssi");
+                    System.out.println("rssi :"+rssi);
 
+                    /* ***SNR*** */
+                    int snr= data.getInt("_snr");
+                    System.out.println("snr  :"+snr);
 
+                    /* ***Latitude*** */
+                    double latitude= data.getDouble("_latitude");
+                    System.out.println("latitude  :"+latitude);
 
+                    /* ***longitude*** */
+                    double longitude= data.getDouble("_longitude");
+                    System.out.println("longitude  :"+longitude);
+
+                    /* *** event ID*** */
+                    int id= data.getInt("uplink");
+                    System.out.println("id  :"+id);
+
+                    /* store data point */
+                    Point point = Point
+                            .measurement("mem")
+                           // .addField("id",uplinkID)
+                            .addField("gateway_id",gateway_id)
+                            .addField("data_rate", spreading_factor)
+                            .addField("frequency",frequency)
+                            .addField("rssi", rssi)
+                            .addField("snr", snr)
+                            .addField("latitude", latitude)
+                            .addField("longitude", longitude)
+                            .addField("id", id)
+                            .time(Instant.now(), WritePrecision.NS);
+
+                    try (WriteApi writeApi = client.getWriteApi()) {
+                        writeApi.writePoint(bucket, org, point);
+                    }
                 });
                 /*
                 System.out.println("All records OUTER MOST :" + allRecord.size());

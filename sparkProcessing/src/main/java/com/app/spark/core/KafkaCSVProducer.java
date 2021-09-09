@@ -16,6 +16,7 @@ import java.util.UUID;
 import java.util.stream.Stream;
 
 public class KafkaCSVProducer {
+
     private static String KafkaBrokerEndpoint = "localhost:92092";
     private static String KafkaTopic = "chirpwifxdata";
     private static String CsvFile = "wifx.csv";
