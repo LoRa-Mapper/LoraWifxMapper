@@ -22,3 +22,14 @@ Following list shows the technologies and tools used in the  application.
 - Juypter notebook
 
 #### Quick start 
+##### 1 - Start docker containers
+follow the instructions to start all the needed docker containers
+
+##### 2 - Start kafka engine 
+start the zookeeper and the brocker
+
+#### 3 - start InfluxDB
+you can execute the exe file to start the database (for windows)
+
+#### 4 - Start Kafka connect
+
